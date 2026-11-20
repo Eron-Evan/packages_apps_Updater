@@ -65,7 +65,11 @@ class ABUpdateInstaller {
             Update update = mUpdaterController.getActualUpdate(mDownloadId);
             if (update == null) {
                 // We read the id from a preference, the update could no longer exist
-                installationDone(status == UpdateEngine.UpdateStatusConstants.UPDATED_NEED_REBOOT);
+                boolean rb = status == UpdateEngine.UpdateStatusConstants.UPDATED_NEED_REBOOT;
+                installationDone(rb);
+                if (rb) {
+                    mUpdaterController.notifyNeedsReboot();
+                }
                 return;
             }
 
@@ -106,6 +110,9 @@ class ABUpdateInstaller {
             if (errorCode != UpdateEngine.ErrorCodeConstants.SUCCESS) {
                 installationDone(false);
                 Update update = mUpdaterController.getActualUpdate(mDownloadId);
+                if (update == null) {
+                    return;
+                }
                 update.setInstallProgress(0);
                 update.setStatus(UpdateStatus.INSTALLATION_FAILED);
                 mUpdaterController.notifyUpdateChange(mDownloadId);
@@ -233,8 +240,9 @@ class ABUpdateInstaller {
             return;
         }
 
-        mDownloadId = PreferenceManager.getDefaultSharedPreferences(mContext)
-                .getString(PREF_INSTALLING_AB_ID, null);
+        SharedPreferences rp = PreferenceManager.getDefaultSharedPreferences(mContext);
+        mDownloadId = rp.getString(PREF_INSTALLING_AB_ID,
+                rp.getString(Constants.PREF_NEEDS_REBOOT_ID, null));
 
         // We will get a status notification as soon as we are connected
         mBound = mUpdateEngine.bind(mUpdateEngineCallback);
@@ -246,7 +254,8 @@ class ABUpdateInstaller {
 
     private void installationDone(boolean needsReboot) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(mContext);
-        String id = needsReboot ? prefs.getString(PREF_INSTALLING_AB_ID, null) : null;
+        String id = needsReboot ? prefs.getString(PREF_INSTALLING_AB_ID,
+                prefs.getString(Constants.PREF_NEEDS_REBOOT_ID, null)) : null;
         PreferenceManager.getDefaultSharedPreferences(mContext).edit()
                 .putString(Constants.PREF_NEEDS_REBOOT_ID, id)
                 .remove(PREF_INSTALLING_AB_ID)

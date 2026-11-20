@@ -110,6 +110,14 @@ public class UpdaterService extends Service {
             @Override
             public void onReceive(Context context, Intent intent) {
                 String downloadId = intent.getStringExtra(UpdaterController.EXTRA_DOWNLOAD_ID);
+                if (UpdaterController.ACTION_NEEDS_REBOOT.equals(intent.getAction())) {
+                    showRebootNotification();
+                    return;
+                }
+                if (UpdaterController.ACTION_UPDATE_STATUS.equals(intent.getAction())
+                        && mUpdaterController.getUpdate(downloadId) == null) {
+                    return;
+                }
                 if (UpdaterController.ACTION_UPDATE_STATUS.equals(intent.getAction())) {
                     UpdateInfo update = mUpdaterController.getUpdate(downloadId);
                     setNotificationTitle(update);
@@ -143,6 +151,7 @@ public class UpdaterService extends Service {
         intentFilter.addAction(UpdaterController.ACTION_INSTALL_PROGRESS);
         intentFilter.addAction(UpdaterController.ACTION_UPDATE_STATUS);
         intentFilter.addAction(UpdaterController.ACTION_UPDATE_REMOVED);
+        intentFilter.addAction(UpdaterController.ACTION_NEEDS_REBOOT);
         LocalBroadcastManager.getInstance(this).registerReceiver(mBroadcastReceiver, intentFilter);
 
     }
@@ -261,7 +270,9 @@ public class UpdaterService extends Service {
             case DELETED: {
                 stopForeground(STOP_FOREGROUND_DETACH);
                 mNotificationBuilder.setOngoing(false);
-                mNotificationManager.cancel(NOTIFICATION_ID);
+                if (!mUpdaterController.isWaitingForReboot(update.getDownloadId())) {
+                    mNotificationManager.cancel(NOTIFICATION_ID);
+                }
                 tryStopSelf();
                 break;
             }
@@ -463,6 +474,24 @@ public class UpdaterService extends Service {
                 break;
             }
         }
+    }
+
+    private void showRebootNotification() {
+        stopForeground(STOP_FOREGROUND_DETACH);
+        mNotificationBuilder.mActions.clear();
+        mNotificationBuilder.setStyle(null);
+        mNotificationBuilder.setSmallIcon(R.drawable.ic_system_update);
+        mNotificationBuilder.setProgress(0, 0, false);
+        String text = getString(R.string.installing_update_finished);
+        mNotificationBuilder.setContentTitle(getString(R.string.app_name));
+        mNotificationBuilder.setContentText(text);
+        mNotificationBuilder.addAction(R.drawable.ic_system_update,
+                getString(R.string.reboot), getRebootPendingIntent());
+        mNotificationBuilder.setTicker(text);
+        mNotificationBuilder.setOngoing(false);
+        mNotificationBuilder.setAutoCancel(true);
+        mNotificationManager.notify(NOTIFICATION_ID, mNotificationBuilder.build());
+        tryStopSelf();
     }
 
     private void handleDownloadProgressChange(UpdateInfo update) {

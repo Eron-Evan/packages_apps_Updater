@@ -47,6 +47,7 @@ public class UpdaterController {
     public static final String ACTION_INSTALL_PROGRESS = "action_install_progress";
     public static final String ACTION_UPDATE_REMOVED = "action_update_removed";
     public static final String ACTION_UPDATE_STATUS = "action_update_status_change";
+    public static final String ACTION_NEEDS_REBOOT = "action_needs_reboot";
     public static final String EXTRA_DOWNLOAD_ID = "extra_download_id";
 
     private final String TAG = "UpdaterController";
@@ -86,6 +87,12 @@ public class UpdaterController {
 
         for (Update update : mUpdatesDbHelper.getUpdates()) {
             addUpdate(update, false);
+            Update added = getActualUpdate(update.getDownloadId());
+            if (added != null
+                    && ABUpdateInstaller.isInstallingUpdate(mContext, added.getDownloadId())
+                    && !isWaitingForReboot(added.getDownloadId())) {
+                added.setStatus(UpdateStatus.INSTALLING);
+            }
         }
     }
 
@@ -117,6 +124,12 @@ public class UpdaterController {
         Intent intent = new Intent();
         intent.setAction(ACTION_DOWNLOAD_PROGRESS);
         intent.putExtra(EXTRA_DOWNLOAD_ID, downloadId);
+        mBroadcastManager.sendBroadcast(intent);
+    }
+
+    void notifyNeedsReboot() {
+        Intent intent = new Intent();
+        intent.setAction(ACTION_NEEDS_REBOOT);
         mBroadcastManager.sendBroadcast(intent);
     }
 
@@ -297,6 +310,10 @@ public class UpdaterController {
             case UpdateStatus.Persistent.VERIFIED:
             case UpdateStatus.Persistent.INCOMPLETE:
                 if (update.getFile() == null || !update.getFile().exists()) {
+                    if (isWaitingForReboot(update.getDownloadId())) {
+                        update.setStatus(UpdateStatus.INSTALLED);
+                        break;
+                    }
                     update.setStatus(UpdateStatus.UNKNOWN);
                     return false;
                 } else if (update.getFileSize() > 0) {
@@ -352,6 +369,12 @@ public class UpdaterController {
         }
         update.setAvailableOnline(availableOnline);
         mDownloads.put(update.getDownloadId(), new DownloadEntry(update));
+        if (Update.LOCAL_ID.equals(update.getDownloadId())
+                && update.getPersistentStatus() == UpdateStatus.Persistent.VERIFIED
+                && update.getFile() != null) {
+            new Thread(() -> mUpdatesDbHelper.addUpdateWithOnConflict(update,
+                    SQLiteDatabase.CONFLICT_REPLACE)).start();
+        }
         return true;
     }
 
@@ -476,6 +499,16 @@ public class UpdaterController {
             return;
         }
         DownloadEntry entry = mDownloads.get(downloadId);
+        if (entry != null && Update.LOCAL_ID.equals(downloadId)
+                && isWaitingForReboot(downloadId)) {
+            final File localFile = entry.mUpdate.getFile();
+            new Thread(() -> {
+                if (localFile != null && localFile.exists()) {
+                    localFile.delete();
+                }
+            }).start();
+            return;
+        }
         if (entry != null) {
             Update update = entry.mUpdate;
             update.setStatus(UpdateStatus.DELETED);
