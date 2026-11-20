@@ -71,6 +71,7 @@ public class UpdaterService extends Service {
     public static final int DOWNLOAD_PAUSE = 1;
 
     private static final int NOTIFICATION_ID = 10;
+    private static final String COMPLETE_NOTIFICATION_CHANNEL = "complete_notification_channel";
 
     private final IBinder mBinder = new LocalBinder();
     private boolean mHasClients;
@@ -94,6 +95,9 @@ public class UpdaterService extends Service {
                 getString(R.string.ongoing_channel_title),
                 NotificationManager.IMPORTANCE_LOW);
         mNotificationManager.createNotificationChannel(notificationChannel);
+        mNotificationManager.createNotificationChannel(new NotificationChannel(
+                COMPLETE_NOTIFICATION_CHANNEL, getString(R.string.complete_channel_title),
+                NotificationManager.IMPORTANCE_HIGH));
         mNotificationBuilder = new NotificationCompat.Builder(this,
                 ONGOING_NOTIFICATION_CHANNEL);
         mNotificationBuilder.setSmallIcon(R.drawable.ic_system_update);
@@ -111,7 +115,7 @@ public class UpdaterService extends Service {
             public void onReceive(Context context, Intent intent) {
                 String downloadId = intent.getStringExtra(UpdaterController.EXTRA_DOWNLOAD_ID);
                 if (UpdaterController.ACTION_NEEDS_REBOOT.equals(intent.getAction())) {
-                    showRebootNotification();
+                    showRebootNotification(null);
                     return;
                 }
                 if (UpdaterController.ACTION_UPDATE_STATUS.equals(intent.getAction())
@@ -410,19 +414,7 @@ public class UpdaterService extends Service {
             }
             case INSTALLED: {
                 stopForeground(STOP_FOREGROUND_DETACH);
-                mNotificationBuilder.mActions.clear();
-                mNotificationBuilder.setStyle(null);
-                mNotificationBuilder.setSmallIcon(R.drawable.ic_system_update);
-                mNotificationBuilder.setProgress(0, 0, false);
-                String text = getString(R.string.installing_update_finished);
-                mNotificationBuilder.setContentText(text);
-                mNotificationBuilder.addAction(R.drawable.ic_system_update,
-                        getString(R.string.reboot),
-                        getRebootPendingIntent());
-                mNotificationBuilder.setTicker(text);
-                mNotificationBuilder.setOngoing(false);
-                mNotificationBuilder.setAutoCancel(true);
-                mNotificationManager.notify(NOTIFICATION_ID, mNotificationBuilder.build());
+                showRebootNotification(update);
 
                 SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(this);
                 boolean deleteUpdate = pref.getBoolean(Constants.PREF_AUTO_DELETE_UPDATES, true);
@@ -476,21 +468,33 @@ public class UpdaterService extends Service {
         }
     }
 
-    private void showRebootNotification() {
+
+    private void showRebootNotification(UpdateInfo update) {
         stopForeground(STOP_FOREGROUND_DETACH);
-        mNotificationBuilder.mActions.clear();
-        mNotificationBuilder.setStyle(null);
-        mNotificationBuilder.setSmallIcon(R.drawable.ic_system_update);
-        mNotificationBuilder.setProgress(0, 0, false);
+        mNotificationManager.cancel(NOTIFICATION_ID);
+        String title = getString(R.string.app_name);
+        if (update != null) {
+            title = getString(R.string.list_build_version_date, update.getVersion(),
+                    StringGenerator.getDateLocalizedUTC(this, DateFormat.MEDIUM,
+                            update.getTimestamp()));
+        }
         String text = getString(R.string.installing_update_finished);
-        mNotificationBuilder.setContentTitle(getString(R.string.app_name));
-        mNotificationBuilder.setContentText(text);
-        mNotificationBuilder.addAction(R.drawable.ic_system_update,
-                getString(R.string.reboot), getRebootPendingIntent());
-        mNotificationBuilder.setTicker(text);
-        mNotificationBuilder.setOngoing(false);
-        mNotificationBuilder.setAutoCancel(true);
-        mNotificationManager.notify(NOTIFICATION_ID, mNotificationBuilder.build());
+        PendingIntent open = PendingIntent.getActivity(this, 0,
+                new Intent(this, UpdatesActivity.class),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this,
+                COMPLETE_NOTIFICATION_CHANNEL)
+                .setSmallIcon(R.drawable.ic_system_update)
+                .setContentTitle(title)
+                .setContentText(text)
+                .addAction(R.drawable.ic_system_update, getString(R.string.reboot),
+                        getRebootPendingIntent())
+                .setTicker(text)
+                .setOngoing(false)
+                .setAutoCancel(true)
+                .setContentIntent(open)
+                .setPriority(NotificationCompat.PRIORITY_HIGH);
+        mNotificationManager.notify(NOTIFICATION_ID, b.build());
         tryStopSelf();
     }
 

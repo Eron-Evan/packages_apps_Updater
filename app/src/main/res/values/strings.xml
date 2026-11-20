@@ -167,4 +167,5 @@
     <string name="local_update_import_failure">Failed to import local update</string>
     <string name="local_update_import_install">Install</string>
     <string name="local_update_name">Local update</string>
+    <string name="complete_channel_title">Completed updates</string>
 </resources>

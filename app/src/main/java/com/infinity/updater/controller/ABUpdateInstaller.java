@@ -17,6 +17,7 @@ package com.infinity.updater.controller;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.ServiceSpecificException;
 import android.os.UpdateEngine;
 import android.os.UpdateEngineCallback;
 import android.text.TextUtils;
@@ -214,12 +215,34 @@ class ABUpdateInstaller {
             }
         }
 
+        try {
+            mUpdateEngine.resetStatus();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to reset UpdateEngine status", e);
+        }
+
         boolean enableABPerfMode = PreferenceManager.getDefaultSharedPreferences(mContext)
                 .getBoolean(Constants.PREF_AB_PERF_MODE, true);
         mUpdateEngine.setPerformanceMode(enableABPerfMode);
 
         String zipFileUri = "file://" + file.getAbsolutePath();
-        mUpdateEngine.applyPayload(zipFileUri, offset, 0, headerKeyValuePairs);
+        try {
+            mUpdateEngine.applyPayload(zipFileUri, offset, 0, headerKeyValuePairs);
+        } catch (ServiceSpecificException e) {
+            if (e.errorCode == 66 /* kUpdateAlreadyInstalled */) {
+                PreferenceManager.getDefaultSharedPreferences(mContext).edit()
+                        .putString(PREF_INSTALLING_AB_ID, mDownloadId).apply();
+                installationDone(true);
+                mUpdaterController.getActualUpdate(mDownloadId).setStatus(UpdateStatus.INSTALLED);
+                mUpdaterController.notifyUpdateChange(mDownloadId);
+                return;
+            }
+            Log.e(TAG, "Failed to apply payload", e);
+            mUpdaterController.getActualUpdate(mDownloadId)
+                    .setStatus(UpdateStatus.INSTALLATION_FAILED);
+            mUpdaterController.notifyUpdateChange(mDownloadId);
+            return;
+        }
 
         mUpdaterController.getActualUpdate(mDownloadId).setStatus(UpdateStatus.INSTALLING);
         mUpdaterController.notifyUpdateChange(mDownloadId);
